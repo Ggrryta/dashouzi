@@ -1,0 +1,27 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  mode: "debug" # debug / release / test
+
+db:
+  host: "postgres"
+  port: 5432
+  user: "bloger"
+  password: "bloger123"
+  dbname: "bloger"
+  sslmode: "disable"
+  timezone: "Asia/Shanghai"
+
+redis:
+  host: "redis"
+  port: 6379
+  password: ""
+  db: 0
+
+jwt:
+  secret: "change-me-in-production-use-env-var"
+  expire_hours: 24
+
+log:
+  level: "debug" # debug / info / warn / error
+  format: "json" # json / console

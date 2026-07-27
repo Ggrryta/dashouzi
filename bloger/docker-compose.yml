@@ -1,0 +1,58 @@
+services:
+  app:
+    build: .
+    container_name: bloger_app
+    ports:
+      - "8080:8080"
+    environment:
+      - GIN_MODE=release
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - bloger_net
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: bloger_pg
+    environment:
+      POSTGRES_USER: bloger
+      POSTGRES_PASSWORD: bloger123
+      POSTGRES_DB: bloger
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bloger"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - bloger_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: bloger_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - bloger_net
+
+volumes:
+  pg_data:
+
+networks:
+  bloger_net:
+    driver: bridge

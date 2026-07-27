@@ -1,0 +1,20 @@
+# Dependencies
+vendor/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage.out
+coverage.html
+
+# Env
+.env.local
+
+# Temp
+tmp/
