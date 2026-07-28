@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
@@ -21,11 +19,7 @@ func Recovery() gin.HandlerFunc {
 					zap.String("method", c.Request.Method),
 				)
 
-				response.Error(c, &errcode.ErrCode{
-					Code:    50000,
-					Message: "internal server error",
-					HTTP:    http.StatusInternalServerError,
-				})
+				response.Error(c, errcode.ErrInternal)
 				c.Abort()
 			}
 		}()

@@ -30,7 +30,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		Size:    size,
 	})
 	if err != nil {
-		response.ErrorWithMsg(c, errcode.ErrBadRequest, err.Error())
+		response.Error(c, errcode.ErrBadRequest)
 		return
 	}
 

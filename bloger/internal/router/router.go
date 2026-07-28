@@ -3,20 +3,20 @@ package router
 import (
 	"time"
 
-	"gorm.io/gorm"
-
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"bloger/internal/handler"
 	"bloger/internal/middleware"
 	"bloger/internal/repository"
 	"bloger/internal/service"
+	"bloger/pkg/errcode"
 	"bloger/pkg/jwt"
 	"bloger/pkg/response"
 	"bloger/pkg/sensitive"
 )
 
-func Setup(db *gorm.DB, jwtService *jwt.JWT) *gin.Engine {
+func Setup(db *gorm.DB, jwtService *jwt.JWT, sensitiveWords []string) *gin.Engine {
 	r := gin.New()
 
 	r.Use(middleware.Recovery())
@@ -34,16 +34,18 @@ func Setup(db *gorm.DB, jwtService *jwt.JWT) *gin.Engine {
 
 	commentRepo := repository.NewCommentRepo(db)
 	filter := sensitive.New()
-	filter.AddWords("bad", "敏感词", "违禁词")
+	if len(sensitiveWords) > 0 {
+		filter.AddWords(sensitiveWords...)
+	}
 	commentSvc := service.NewCommentService(commentRepo, filter)
 	commentHandler := handler.NewCommentHandler(commentSvc)
 
 	likeRepo := repository.NewLikeRepo(db)
-	likeSvc := service.NewLikeService(likeRepo)
+	likeSvc := service.NewLikeService(likeRepo, articleRepo, commentRepo)
 	likeHandler := handler.NewLikeHandler(likeSvc)
 
 	favRepo := repository.NewFavoriteRepo(db)
-	favSvc := service.NewFavoriteService(favRepo)
+	favSvc := service.NewFavoriteService(favRepo, articleRepo)
 	favHandler := handler.NewFavoriteHandler(favSvc)
 
 	searchRepo := repository.NewSearchRepo(db)
@@ -76,7 +78,11 @@ func Setup(db *gorm.DB, jwtService *jwt.JWT) *gin.Engine {
 		v1.GET("/stats/trending", statsHandler.Trending)
 		v1.GET("/stats/users", statsHandler.UserRanking)
 		v1.GET("/tags", func(c *gin.Context) {
-			tags, _ := tagRepo.List(c.Request.Context())
+			tags, err := tagRepo.List(c.Request.Context())
+			if err != nil {
+				response.Error(c, errcode.ErrInternal)
+				return
+			}
 			response.Success(c, tags)
 		})
 
@@ -86,13 +92,13 @@ func Setup(db *gorm.DB, jwtService *jwt.JWT) *gin.Engine {
 		{
 			auth.GET("/users/me", userHandler.GetMe)
 
-			// 文章
-			auth.POST("/articles", articleHandler.Create)
+			// 文章:创建需 author/admin(S1);更新/删除/状态变更由 service 校验所有权+admin
+			auth.POST("/articles", middleware.Role("author"), articleHandler.Create)
 			auth.PUT("/articles/:id", articleHandler.Update)
 			auth.DELETE("/articles/:id", articleHandler.Delete)
 			auth.PATCH("/articles/:id/status", articleHandler.ChangeStatus)
 
-			// 评论（限流）
+			// 评论(限流)
 			commentAuth := auth.Group("")
 			commentAuth.Use(middleware.RateLimit(20, time.Minute))
 			{

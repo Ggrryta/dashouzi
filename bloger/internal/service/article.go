@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"strings"
 	"time"
+	"unicode"
 
 	"bloger/internal/model"
 	"bloger/internal/repository"
@@ -15,7 +16,13 @@ import (
 var (
 	ErrArticleNotFound = errors.New("article not found")
 	ErrNotOwner        = errors.New("not the article owner")
+	ErrNotPublished    = errors.New("article not published")
 )
+
+// isAdmin 判断角色是否为管理员(可跨用户操作)。
+func isAdmin(role string) bool {
+	return role == "admin"
+}
 
 type CreateArticleInput struct {
 	Title    string
@@ -107,7 +114,7 @@ func (s *ArticleService) Create(ctx context.Context, authorID uint, input Create
 	return article, nil
 }
 
-// GetByID 通过 ID 查文章，自动增加阅读量。
+// GetByID 通过 ID 查文章(内部使用,不限状态,不计浏览量)。
 func (s *ArticleService) GetByID(ctx context.Context, id uint) (*model.Article, error) {
 	article, err := s.articleRepo.FindByID(ctx, id)
 	if err != nil {
@@ -116,38 +123,35 @@ func (s *ArticleService) GetByID(ctx context.Context, id uint) (*model.Article, 
 	if article == nil {
 		return nil, ErrArticleNotFound
 	}
-
-	// 增加阅读量（异步，不影响响应）
-	go func() {
-		_ = s.articleRepo.IncrementViewCount(context.Background(), id)
-	}()
-
-	// 同步更新内存中的值以便测试
-	article.ViewCount++
-
 	return article, nil
 }
 
-// GetBySlug 通过 Slug 查文章。
-func (s *ArticleService) GetBySlug(ctx context.Context, slug string) (*model.Article, error) {
-	article, err := s.articleRepo.FindBySlug(ctx, slug)
-	if err != nil || article == nil {
+// GetPublicByID 公开文章详情:仅返回 published 状态,并同步累加浏览量。
+// 修复 S2(未发布内容泄露)与 M4(浏览量异步丢失)。
+func (s *ArticleService) GetPublicByID(ctx context.Context, id uint) (*model.Article, error) {
+	article, err := s.articleRepo.FindByID(ctx, id)
+	if err != nil {
 		return nil, ErrArticleNotFound
 	}
-	article.ViewCount++
+	if article == nil || article.Status != "published" {
+		return nil, ErrArticleNotFound
+	}
+
+	// 同步累加浏览量:失败不阻断主流程,仅记录。
+	if err := s.articleRepo.IncrementViewCount(ctx, id); err == nil {
+		article.ViewCount++
+	}
 	return article, nil
 }
 
-// ChangeStatus 变更文章状态。校验状态机 + 所有权。
-func (s *ArticleService) ChangeStatus(ctx context.Context, userID, articleID uint, newStatus string) error {
+// ChangeStatus 变更文章状态。校验状态机 + 所有权(admin 可跨用户)。
+func (s *ArticleService) ChangeStatus(ctx context.Context, userID uint, role string, articleID uint, newStatus string) error {
 	article, err := s.articleRepo.FindByID(ctx, articleID)
 	if err != nil || article == nil {
 		return ErrArticleNotFound
 	}
 
-	// 所有权校验（只有作者和管理员能改）
-	// 简化处理：管理员逻辑后续在 handler 层判断
-	if article.AuthorID != userID {
+	if !isAdmin(role) && article.AuthorID != userID {
 		return ErrNotOwner
 	}
 
@@ -164,14 +168,14 @@ func (s *ArticleService) ChangeStatus(ctx context.Context, userID, articleID uin
 	return s.articleRepo.Update(ctx, article)
 }
 
-// Update 更新文章内容。校验所有权。
-func (s *ArticleService) Update(ctx context.Context, userID, articleID uint, input UpdateArticleInput) error {
+// Update 更新文章内容。校验所有权(admin 可跨用户)。
+func (s *ArticleService) Update(ctx context.Context, userID uint, role string, articleID uint, input UpdateArticleInput) error {
 	article, err := s.articleRepo.FindByID(ctx, articleID)
 	if err != nil || article == nil {
 		return ErrArticleNotFound
 	}
 
-	if article.AuthorID != userID {
+	if !isAdmin(role) && article.AuthorID != userID {
 		return ErrNotOwner
 	}
 
@@ -203,14 +207,14 @@ func (s *ArticleService) Update(ctx context.Context, userID, articleID uint, inp
 	return s.articleRepo.Update(ctx, article)
 }
 
-// Delete 删除文章。校验所有权。
-func (s *ArticleService) Delete(ctx context.Context, userID, articleID uint) error {
+// Delete 删除文章。校验所有权(admin 可跨用户)。
+func (s *ArticleService) Delete(ctx context.Context, userID uint, role string, articleID uint) error {
 	article, err := s.articleRepo.FindByID(ctx, articleID)
 	if err != nil || article == nil {
 		return ErrArticleNotFound
 	}
 
-	if article.AuthorID != userID {
+	if !isAdmin(role) && article.AuthorID != userID {
 		return ErrNotOwner
 	}
 
@@ -236,15 +240,23 @@ func (s *ArticleService) List(ctx context.Context, params ListArticleParams) ([]
 }
 
 func generateSlug(title string) string {
-	slug := strings.ToLower(title)
+	slug := strings.ToLower(strings.TrimSpace(title))
 	slug = strings.ReplaceAll(slug, " ", "-")
-	// 简单去除特殊字符
+	// 保留字母/数字(含中文等 Unicode 字母)与 '-',过滤标点
 	slug = strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
 			return r
 		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return r
+		}
 		return -1
 	}, slug)
+	slug = strings.Trim(slug, "-")
+	if slug == "" {
+		slug = "article"
+	}
+	// 用纳秒时间戳 + 随机数防碰撞
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return fmt.Sprintf("%s-%d", slug, r.Intn(10000))
+	return fmt.Sprintf("%s-%d%d", slug, time.Now().UnixNano(), r.Intn(1000))
 }

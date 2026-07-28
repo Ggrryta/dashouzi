@@ -14,6 +14,7 @@ var (
 	ErrCommentNotFound  = errors.New("comment not found")
 	ErrSensitiveContent = errors.New("content contains sensitive words")
 	ErrNotCommentOwner  = errors.New("not the comment owner")
+	ErrInvalidParent    = errors.New("invalid parent comment")
 )
 
 type CreateCommentInput struct {
@@ -41,6 +42,17 @@ func (s *CommentService) Create(ctx context.Context, userID, articleID uint, inp
 		return nil, ErrSensitiveContent
 	}
 
+	// S4: parent_id 合法性校验 —— 必须存在且属于同一篇文章
+	if input.ParentID != nil {
+		parent, err := s.repo.FindByID(ctx, *input.ParentID)
+		if err != nil || parent == nil {
+			return nil, ErrInvalidParent
+		}
+		if parent.ArticleID != articleID {
+			return nil, ErrInvalidParent // 跨文章回复,拒绝
+		}
+	}
+
 	comment := &model.Comment{
 		ArticleID: articleID,
 		UserID:    userID,
@@ -59,13 +71,14 @@ func (s *CommentService) GetByArticle(ctx context.Context, articleID uint) ([]*m
 	return s.repo.FindByArticle(ctx, articleID)
 }
 
-func (s *CommentService) Delete(ctx context.Context, userID, commentID uint) error {
+func (s *CommentService) Delete(ctx context.Context, userID uint, role string, commentID uint) error {
 	c, err := s.repo.FindByID(ctx, commentID)
 	if err != nil || c == nil {
 		return ErrCommentNotFound
 	}
 
-	if c.UserID != userID {
+	// S6: admin 可删除任意评论
+	if !isAdmin(role) && c.UserID != userID {
 		return ErrNotCommentOwner
 	}
 

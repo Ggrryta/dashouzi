@@ -20,7 +20,7 @@ func init() {
 func TestPing_ReturnsPong(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	j := jwt.New("test", 1)
-	r := Setup(nil, j)
+	r := Setup(nil, j, nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/ping", nil)
@@ -38,7 +38,7 @@ func TestPing_ReturnsPong(t *testing.T) {
 func TestRegisterRoute(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	j := jwt.New("test", 1)
-	r := Setup(nil, j)
+	r := Setup(nil, j, nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/api/v1/users/register", nil)
@@ -50,7 +50,7 @@ func TestRegisterRoute(t *testing.T) {
 func TestAuthRoute_MissingToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	j := jwt.New("test", 1)
-	r := Setup(nil, j)
+	r := Setup(nil, j, nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/users/me", nil)

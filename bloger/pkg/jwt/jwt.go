@@ -13,6 +13,8 @@ var (
 	ErrInvalidToken = errors.New("invalid token")
 )
 
+const issuer = "bloger"
+
 type JWT struct {
 	secret      []byte
 	expireHours int
@@ -39,8 +41,11 @@ func (j *JWT) GenerateToken(userID uint, username, role string) (string, error) 
 		Username: username,
 		Role:     role,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(j.expireHours) * time.Hour)),
+			Issuer:    issuer,
+			Subject:   username,
 			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(j.expireHours) * time.Hour)),
 		},
 	}
 
@@ -58,7 +63,7 @@ func (j *JWT) ParseToken(tokenStr string) (*Claims, error) {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return j.secret, nil
-	})
+	}, jwt.WithIssuer(issuer))
 
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {

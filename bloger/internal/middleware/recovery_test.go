@@ -32,7 +32,7 @@ func TestRecovery_PanicReturns500(t *testing.T) {
 
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.Equal(t, float64(50000), resp["code"])
+	assert.Equal(t, float64(10000), resp["code"])
 	assert.Equal(t, "internal server error", resp["message"])
 }
 

@@ -8,28 +8,22 @@ import (
 )
 
 type FavoriteService struct {
-	repo repository.FavoriteRepository
+	repo        repository.FavoriteRepository
+	articleRepo repository.ArticleRepository
 }
 
-func NewFavoriteService(repo repository.FavoriteRepository) *FavoriteService {
-	return &FavoriteService{repo: repo}
+func NewFavoriteService(repo repository.FavoriteRepository, ar repository.ArticleRepository) *FavoriteService {
+	return &FavoriteService{repo: repo, articleRepo: ar}
 }
 
 // Toggle 收藏/取消收藏。返回操作后的最终状态。
+// S5: 先校验文章存在;S3: 调用 repo.Toggle 原子化切换。
 func (s *FavoriteService) Toggle(ctx context.Context, userID, articleID uint) (bool, error) {
-	exists, err := s.repo.Exists(ctx, userID, articleID)
-	if err != nil {
-		return false, err
+	a, err := s.articleRepo.FindByID(ctx, articleID)
+	if err != nil || a == nil {
+		return false, ErrTargetNotFound
 	}
-
-	if exists {
-		return false, s.repo.Delete(ctx, userID, articleID)
-	}
-
-	return true, s.repo.Create(ctx, &model.Favorite{
-		UserID:    userID,
-		ArticleID: articleID,
-	})
+	return s.repo.Toggle(ctx, userID, articleID)
 }
 
 // List 收藏列表。

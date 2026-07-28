@@ -43,8 +43,10 @@ func (h *CommentHandler) Create(c *gin.Context) {
 		switch err {
 		case service.ErrSensitiveContent:
 			response.Error(c, errcode.ErrSensitiveWord)
+		case service.ErrInvalidParent:
+			response.Error(c, errcode.ErrInvalidParentComment)
 		default:
-			response.ErrorWithMsg(c, errcode.ErrBadRequest, err.Error())
+			response.Error(c, errcode.ErrBadRequest)
 		}
 		return
 	}
@@ -54,9 +56,10 @@ func (h *CommentHandler) Create(c *gin.Context) {
 
 func (h *CommentHandler) Delete(c *gin.Context) {
 	userID := c.GetUint("user_id")
+	role := c.GetString("role")
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 
-	err := h.svc.Delete(c.Request.Context(), userID, uint(id))
+	err := h.svc.Delete(c.Request.Context(), userID, role, uint(id))
 	if err != nil {
 		switch err {
 		case service.ErrCommentNotFound:

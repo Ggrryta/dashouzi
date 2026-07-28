@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -26,7 +32,8 @@ func main() {
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
+		fmt.Printf("failed to load config: %v\n", err)
+		os.Exit(1)
 	}
 
 	// 初始化日志
@@ -35,13 +42,25 @@ func main() {
 
 	logger.Log.Info("config loaded", zap.Int("port", cfg.Server.Port))
 
+	// 设置 Gin 模式
+	gin.SetMode(cfg.Server.Mode)
+
 	// 连接数据库
 	db, err := gorm.Open(postgres.Open(cfg.DB.DSN()), &gorm.Config{
 		Logger: gormlogger.Default.LogMode(gormlogger.Warn),
 	})
 	if err != nil {
-		log.Fatalf("failed to connect database: %v", err)
+		logger.Log.Fatal("failed to connect database", zap.Error(err))
 	}
+
+	// 连接池配置
+	sqlDB, err := db.DB()
+	if err != nil {
+		logger.Log.Fatal("failed to get sql.DB", zap.Error(err))
+	}
+	sqlDB.SetMaxOpenConns(50)
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetConnMaxLifetime(time.Hour)
 
 	// 自动迁移
 	if err := db.AutoMigrate(
@@ -52,27 +71,41 @@ func main() {
 		&model.Like{},
 		&model.Favorite{},
 	); err != nil {
-		log.Fatalf("failed to migrate: %v", err)
+		logger.Log.Fatal("failed to migrate", zap.Error(err))
 	}
 
-	// 注意: tsvector 全文索引需要手动创建
-	// 参见 scripts/init.sql
-
 	logger.Log.Info("database migrated")
-
-	// 设置 Gin 模式
-	// gin.SetMode(cfg.Server.Mode)
 
 	// 初始化 JWT
 	jwtService := jwt.New(cfg.JWT.Secret, cfg.JWT.ExpireHours)
 
 	// 启动路由
-	r := router.Setup(db, jwtService)
+	r := router.Setup(db, jwtService, cfg.Sensitive.Words)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	logger.Log.Info("server starting", zap.String("addr", addr))
-
-	if err := r.Run(addr); err != nil {
-		log.Fatalf("failed to start server: %v", err)
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: r,
 	}
+
+	// 优雅关机
+	go func() {
+		logger.Log.Info("server starting", zap.String("addr", addr))
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Log.Fatal("failed to start server", zap.Error(err))
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	logger.Log.Info("shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Log.Error("server forced to shutdown", zap.Error(err))
+	}
+	sqlDB.Close()
+	logger.Log.Info("server exited")
 }

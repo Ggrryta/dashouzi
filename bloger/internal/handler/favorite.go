@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"bloger/internal/dto"
 	"bloger/internal/service"
 	"bloger/pkg/errcode"
 	"bloger/pkg/response"
@@ -33,7 +34,11 @@ func (h *FavoriteHandler) Toggle(c *gin.Context) {
 
 	faved, err := h.svc.Toggle(c.Request.Context(), userID, req.ArticleID)
 	if err != nil {
-		response.Error(c, errcode.ErrInternal)
+		if err == service.ErrTargetNotFound {
+			response.Error(c, errcode.ErrTargetNotFound)
+		} else {
+			response.Error(c, errcode.ErrInternal)
+		}
 		return
 	}
 
@@ -51,14 +56,17 @@ func (h *FavoriteHandler) List(c *gin.Context) {
 		return
 	}
 
-	var ids []uint
+	var result []dto.ArticleResponse
 	for _, f := range favs {
-		ids = append(ids, f.ArticleID)
+		if f.Article.ID != 0 {
+			result = append(result, toArticleResponse(&f.Article))
+		}
 	}
 
 	response.Success(c, gin.H{
-		"article_ids": ids,
-		"total":       total,
-		"page":        page,
+		"articles": result,
+		"total":    total,
+		"page":     page,
+		"size":     size,
 	})
 }

@@ -1,6 +1,6 @@
 # Bloger - 博客内容管理系统
 
-技术博客平台，支持 Markdown 写作、评论互动、全文搜索、点赞收藏。
+技术博客平台，支持 Markdown 写作、评论互动、模糊搜索、点赞收藏。
 
 ## 技术栈
 
@@ -10,7 +10,7 @@
 | Web 框架 | Gin |
 | ORM | GORM |
 | 数据库 | PostgreSQL 16 |
-| 缓存 | Redis 7 |
+| 缓存 | Redis 7(预留，限流当前为进程内存实现) |
 | 认证 | JWT (HS256) |
 | 容器化 | Docker Compose |
 
@@ -106,7 +106,7 @@ bloger/
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/search?q=` | 全文搜索 |
+| GET | `/search?q=` | 模糊搜索(ILIKE) |
 | GET | `/stats/trending` | 热门文章 |
 | GET | `/stats/users` | 用户排行 |
 
@@ -119,6 +119,8 @@ draft → reviewing → published → archived
 ```
 
 ## 限流策略
+
+固定窗口算法，已认证用户按 `user_id` 计数、未认证按 `IP` 计数；惰性清理过期条目。
 
 | 接口 | 限制 |
 |---|---|

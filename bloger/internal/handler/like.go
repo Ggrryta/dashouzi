@@ -34,7 +34,11 @@ func (h *LikeHandler) Toggle(c *gin.Context) {
 
 	liked, err := h.svc.Toggle(c.Request.Context(), userID, req.TargetType, req.TargetID)
 	if err != nil {
-		response.Error(c, errcode.ErrInternal)
+		if err == service.ErrTargetNotFound {
+			response.Error(c, errcode.ErrTargetNotFound)
+		} else {
+			response.Error(c, errcode.ErrInternal)
+		}
 		return
 	}
 

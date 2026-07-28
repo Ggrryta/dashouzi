@@ -80,9 +80,7 @@ func (m *mockArticleRepo) List(_ context.Context, params repository.ArticleListP
 }
 
 func (m *mockArticleRepo) IncrementViewCount(_ context.Context, id uint) error {
-	if a, ok := m.articles[id]; ok {
-		a.ViewCount++
-	}
+	// 模拟真实 DB:UPDATE 不影响已查询的内存对象,由 service 层手动 ++ 返回值
 	return nil
 }
 
@@ -213,17 +211,29 @@ func TestArticleCreate_DefaultDraftStatus(t *testing.T) {
 
 // ====== GetByID 测试 ======
 
-func TestArticleGetByID_Success(t *testing.T) {
+func TestArticleGetPublicByID_Success(t *testing.T) {
 	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
 
 	created, _ := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "Test", Content: "Test",
 	})
+	created.Status = "published" // 模拟发布
 
-	found, err := svc.GetByID(context.Background(), created.ID)
+	found, err := svc.GetPublicByID(context.Background(), created.ID)
 	assert.NoError(t, err)
 	assert.Equal(t, "Test", found.Title)
-	assert.Equal(t, int64(1), found.ViewCount) // 阅读量+1
+	assert.Equal(t, int64(1), found.ViewCount) // 浏览量同步+1
+}
+
+func TestArticleGetPublicByID_NotPublished_ReturnsNotFound(t *testing.T) {
+	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+
+	created, _ := svc.Create(context.Background(), 1, CreateArticleInput{
+		Title: "Draft", Content: "Test",
+	}) // 默认 draft
+
+	_, err := svc.GetPublicByID(context.Background(), created.ID)
+	assert.ErrorIs(t, err, ErrArticleNotFound) // S2: 未发布不可见
 }
 
 func TestArticleGetByID_NotFound(t *testing.T) {
@@ -241,7 +251,7 @@ func TestArticleChangeStatus_ValidTransition(t *testing.T) {
 		Title: "Test", Content: "Test",
 	})
 
-	err := svc.ChangeStatus(context.Background(), 1, a.ID, "reviewing")
+	err := svc.ChangeStatus(context.Background(), 1, "author", a.ID, "reviewing")
 	assert.NoError(t, err)
 
 	updated, _ := svc.GetByID(context.Background(), a.ID)
@@ -254,7 +264,7 @@ func TestArticleChangeStatus_InvalidTransition(t *testing.T) {
 		Title: "Test", Content: "Test",
 	})
 
-	err := svc.ChangeStatus(context.Background(), 1, a.ID, "archived") // draft→archived 非法
+	err := svc.ChangeStatus(context.Background(), 1, "author", a.ID, "archived") // draft→archived 非法
 	assert.Error(t, err)
 }
 
@@ -264,8 +274,19 @@ func TestArticleChangeStatus_NotOwner(t *testing.T) {
 		Title: "Test", Content: "Test",
 	})
 
-	err := svc.ChangeStatus(context.Background(), 2, a.ID, "reviewing") // user 2 不是作者
+	err := svc.ChangeStatus(context.Background(), 2, "reader", a.ID, "reviewing") // user 2 不是作者
 	assert.Error(t, err)
+}
+
+func TestArticleChangeStatus_AdminCanOverride(t *testing.T) {
+	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	a, _ := svc.Create(context.Background(), 1, CreateArticleInput{
+		Title: "Test", Content: "Test",
+	})
+
+	// S1: admin 可跨用户变更状态
+	err := svc.ChangeStatus(context.Background(), 999, "admin", a.ID, "reviewing")
+	assert.NoError(t, err)
 }
 
 // ====== Update 测试 ======
@@ -276,7 +297,7 @@ func TestArticleUpdate_Success(t *testing.T) {
 		Title: "Old", Content: "Old", TagNames: []string{"Go"},
 	})
 
-	err := svc.Update(context.Background(), 1, a.ID, UpdateArticleInput{
+	err := svc.Update(context.Background(), 1, "author", a.ID, UpdateArticleInput{
 		Title:    "New",
 		Content:  "New",
 		TagNames: []string{"微服务"},
@@ -295,7 +316,7 @@ func TestArticleUpdate_NotOwner(t *testing.T) {
 		Title: "Test", Content: "Test",
 	})
 
-	err := svc.Update(context.Background(), 2, a.ID, UpdateArticleInput{Title: "Hacked"})
+	err := svc.Update(context.Background(), 2, "reader", a.ID, UpdateArticleInput{Title: "Hacked"})
 	assert.Error(t, err)
 }
 
@@ -307,7 +328,7 @@ func TestArticleDelete_Success(t *testing.T) {
 		Title: "Test", Content: "Test",
 	})
 
-	err := svc.Delete(context.Background(), 1, a.ID)
+	err := svc.Delete(context.Background(), 1, "author", a.ID)
 	assert.NoError(t, err)
 
 	_, err = svc.GetByID(context.Background(), a.ID)
@@ -320,7 +341,7 @@ func TestArticleDelete_NotOwner(t *testing.T) {
 		Title: "Test", Content: "Test",
 	})
 
-	err := svc.Delete(context.Background(), 2, a.ID)
+	err := svc.Delete(context.Background(), 2, "reader", a.ID)
 	assert.Error(t, err)
 }
 

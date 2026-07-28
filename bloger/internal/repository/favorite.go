@@ -14,6 +14,8 @@ type FavoriteRepository interface {
 	Create(ctx context.Context, fav *model.Favorite) error
 	Delete(ctx context.Context, userID, articleID uint) error
 	List(ctx context.Context, userID uint, page, size int) ([]*model.Favorite, int64, error)
+	// Toggle 原子化切换收藏状态,用事务+ON CONFLICT 消除竞态。
+	Toggle(ctx context.Context, userID, articleID uint) (bool, error)
 }
 
 type favoriteRepo struct {
@@ -51,6 +53,33 @@ func (r *favoriteRepo) List(_ context.Context, userID uint, page, size int) ([]*
 
 	var favs []*model.Favorite
 	offset := (page - 1) * size
-	err := query.Offset(offset).Limit(size).Order("created_at DESC").Find(&favs).Error
+	err := query.Preload("Article").Offset(offset).Limit(size).Order("created_at DESC").Find(&favs).Error
 	return favs, total, err
+}
+
+func (r *favoriteRepo) Toggle(_ context.Context, userID, articleID uint) (bool, error) {
+	var faved bool
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "article_id"}},
+			DoNothing: true,
+		}).Create(&model.Favorite{
+			UserID:    userID,
+			ArticleID: articleID,
+		})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected > 0 {
+			faved = true
+			return nil
+		}
+		if err := tx.Where("user_id = ? AND article_id = ?", userID, articleID).
+			Delete(&model.Favorite{}).Error; err != nil {
+			return err
+		}
+		faved = false
+		return nil
+	})
+	return faved, err
 }

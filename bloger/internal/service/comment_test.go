@@ -120,6 +120,33 @@ func TestCommentCreate_WithParent(t *testing.T) {
 	assert.Equal(t, parent.ID, *reply.ParentID)
 }
 
+func TestCommentCreate_CrossArticleParent_Rejected(t *testing.T) {
+	repo := newMockCommentRepo()
+	svc := NewCommentService(repo, &mockFilter{})
+
+	// parent 属于 article 1
+	parent, _ := svc.Create(context.Background(), 1, 1, CreateCommentInput{Content: "parent"})
+	// S4: 在 article 2 下回复 article 1 的 parent 应被拒
+	_, err := svc.Create(context.Background(), 2, 2, CreateCommentInput{
+		Content:  "cross",
+		ParentID: &parent.ID,
+	})
+	assert.ErrorIs(t, err, ErrInvalidParent)
+}
+
+func TestCommentCreate_NonExistentParent_Rejected(t *testing.T) {
+	repo := newMockCommentRepo()
+	svc := NewCommentService(repo, &mockFilter{})
+
+	fakeID := uint(999)
+	// S4: parent 不存在应被拒
+	_, err := svc.Create(context.Background(), 1, 1, CreateCommentInput{
+		Content:  "reply",
+		ParentID: &fakeID,
+	})
+	assert.ErrorIs(t, err, ErrInvalidParent)
+}
+
 func TestCommentCreate_SensitiveWord(t *testing.T) {
 	repo := newMockCommentRepo()
 	filter := &mockFilter{words: []string{"违禁词"}}
@@ -164,7 +191,7 @@ func TestCommentDelete_Success(t *testing.T) {
 
 	c, _ := svc.Create(context.Background(), 1, 1, CreateCommentInput{Content: "test"})
 
-	err := svc.Delete(context.Background(), 1, c.ID)
+	err := svc.Delete(context.Background(), 1, "reader", c.ID)
 	assert.NoError(t, err)
 
 	deleted, _ := repo.FindByID(context.Background(), c.ID)
@@ -177,6 +204,17 @@ func TestCommentDelete_NotOwner(t *testing.T) {
 
 	c, _ := svc.Create(context.Background(), 1, 1, CreateCommentInput{Content: "test"})
 
-	err := svc.Delete(context.Background(), 2, c.ID) // 别人删
+	err := svc.Delete(context.Background(), 2, "reader", c.ID) // 别人删
 	assert.Error(t, err)
+}
+
+func TestCommentDelete_Admin(t *testing.T) {
+	repo := newMockCommentRepo()
+	svc := NewCommentService(repo, &mockFilter{})
+
+	c, _ := svc.Create(context.Background(), 1, 1, CreateCommentInput{Content: "test"})
+
+	// S6: admin 可删除他人评论
+	err := svc.Delete(context.Background(), 2, "admin", c.ID)
+	assert.NoError(t, err)
 }

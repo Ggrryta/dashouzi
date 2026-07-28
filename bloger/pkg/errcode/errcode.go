@@ -31,10 +31,16 @@ var (
 	ErrArticleNotFound      = &ErrCode{30001, "article not found", http.StatusNotFound}
 	ErrInvalidStatusChange  = &ErrCode{30002, "invalid status transition", http.StatusBadRequest}
 	ErrNotArticleOwner      = &ErrCode{30003, "not the article owner", http.StatusForbidden}
+	ErrArticleNotPublished  = &ErrCode{30004, "article not published", http.StatusNotFound}
 
 	// 评论
 	ErrCommentNotFound      = &ErrCode{40001, "comment not found", http.StatusNotFound}
 	ErrSensitiveWord        = &ErrCode{40002, "content contains sensitive words", http.StatusBadRequest}
+	ErrInvalidParentComment = &ErrCode{40003, "invalid parent comment", http.StatusBadRequest}
+	ErrNestedReplyTooDeep   = &ErrCode{40004, "nested reply too deep", http.StatusBadRequest}
+
+	// 点赞 & 收藏
+	ErrTargetNotFound = &ErrCode{50001, "target resource not found", http.StatusNotFound}
 )
 
 func (e *ErrCode) Error() string {

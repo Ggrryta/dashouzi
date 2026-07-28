@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 
 	"bloger/internal/dto"
@@ -42,7 +40,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 		case service.ErrUsernameExists:
 			response.Error(c, errcode.ErrUsernameExists)
 		default:
-			response.ErrorWithMsg(c, errcode.ErrBadRequest, err.Error())
+			response.Error(c, errcode.ErrBadRequest)
 		}
 		return
 	}
@@ -69,7 +67,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 		case service.ErrInvalidCredentials:
 			response.Error(c, errcode.ErrInvalidCredentials)
 		default:
-			response.ErrorWithMsg(c, errcode.ErrBadRequest, err.Error())
+			response.Error(c, errcode.ErrBadRequest)
 		}
 		return
 	}
@@ -87,11 +85,11 @@ func (h *UserHandler) Login(c *gin.Context) {
 }
 
 func (h *UserHandler) GetMe(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID := c.GetUint("user_id")
 
-	user, err := h.svc.GetByID(c.Request.Context(), userID.(uint))
+	user, err := h.svc.GetByID(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 20005, "message": "invalid token"})
+		response.Error(c, errcode.ErrNotFound)
 		return
 	}
 

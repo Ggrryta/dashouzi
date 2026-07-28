@@ -25,3 +25,9 @@ jwt:
 log:
   level: "debug" # debug / info / warn / error
   format: "json" # json / console
+
+sensitive:
+  words:
+    - "bad"
+    - "敏感词"
+    - "违禁词"

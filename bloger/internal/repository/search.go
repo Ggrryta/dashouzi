@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -13,10 +14,10 @@ type SearchRepository interface {
 }
 
 type UserRank struct {
-	UserID      uint   `json:"user_id"`
-	Username    string `json:"username"`
-	ArticleCount int64 `json:"article_count"`
-	CommentCount int64 `json:"comment_count"`
+	UserID       uint   `json:"user_id"`
+	Username     string `json:"username"`
+	ArticleCount int64  `json:"article_count"`
+	CommentCount int64  `json:"comment_count"`
 }
 
 type StatsRepository interface {
@@ -32,11 +33,17 @@ func NewSearchRepo(db *gorm.DB) SearchRepository {
 	return &searchRepo{db: db}
 }
 
+// FullTextSearch 模糊搜索。
+// M3: 当前用 ILIKE 模糊匹配(对中文友好;PG simple tsvector 不分词,对中文无效);
+// 转义 LIKE 通配符 % _ 防止误匹配与注入。英文场景可后续切换为 tsvector @@ to_tsquery。
 func (r *searchRepo) FullTextSearch(_ context.Context, keyword string, page, size int) ([]*model.Article, int64, error) {
 	var articles []*model.Article
 	var total int64
 
-	likeKeyword := "%" + keyword + "%"
+	// 转义 LIKE/ILIKE 通配符
+	escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(keyword)
+	likeKeyword := "%" + escaped + "%"
+
 	query := r.db.Model(&model.Article{}).
 		Where("status = ?", "published").
 		Where("title ILIKE ? OR content ILIKE ?", likeKeyword, likeKeyword)

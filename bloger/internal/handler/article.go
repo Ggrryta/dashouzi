@@ -57,7 +57,7 @@ func (h *ArticleHandler) Create(c *gin.Context) {
 		TagNames: req.TagNames,
 	})
 	if err != nil {
-		response.ErrorWithMsg(c, errcode.ErrBadRequest, err.Error())
+		response.Error(c, errcode.ErrBadRequest)
 		return
 	}
 
@@ -68,20 +68,14 @@ func (h *ArticleHandler) Create(c *gin.Context) {
 }
 
 func (h *ArticleHandler) Get(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		response.Error(c, errcode.ErrBadRequest)
 		return
 	}
 
-	// 尝试用 slug 查
-	article, err := h.svc.GetBySlug(c.Request.Context(), idStr)
-	if err != nil {
-		// 回退到 ID 查询
-		article, err = h.svc.GetByID(c.Request.Context(), uint(id))
-	}
-
+	// S2: 公开接口仅返回 published 文章,并同步累加浏览量
+	article, err := h.svc.GetPublicByID(c.Request.Context(), uint(id))
 	if err != nil {
 		response.Error(c, errcode.ErrArticleNotFound)
 		return
@@ -122,6 +116,7 @@ func (h *ArticleHandler) List(c *gin.Context) {
 
 func (h *ArticleHandler) Update(c *gin.Context) {
 	userID := c.GetUint("user_id")
+	role := c.GetString("role")
 	articleID := getArticleID(c)
 
 	var req updateArticleReq
@@ -130,7 +125,7 @@ func (h *ArticleHandler) Update(c *gin.Context) {
 		return
 	}
 
-	err := h.svc.Update(c.Request.Context(), userID, articleID, service.UpdateArticleInput{
+	err := h.svc.Update(c.Request.Context(), userID, role, articleID, service.UpdateArticleInput{
 		Title:    req.Title,
 		Content:  req.Content,
 		Summary:  req.Summary,
@@ -144,7 +139,7 @@ func (h *ArticleHandler) Update(c *gin.Context) {
 		case service.ErrNotOwner:
 			response.Error(c, errcode.ErrNotArticleOwner)
 		default:
-			response.ErrorWithMsg(c, errcode.ErrBadRequest, err.Error())
+			response.Error(c, errcode.ErrBadRequest)
 		}
 		return
 	}
@@ -156,9 +151,10 @@ func (h *ArticleHandler) Update(c *gin.Context) {
 
 func (h *ArticleHandler) Delete(c *gin.Context) {
 	userID := c.GetUint("user_id")
+	role := c.GetString("role")
 	articleID := getArticleID(c)
 
-	err := h.svc.Delete(c.Request.Context(), userID, articleID)
+	err := h.svc.Delete(c.Request.Context(), userID, role, articleID)
 	if err != nil {
 		switch err {
 		case service.ErrArticleNotFound:
@@ -176,6 +172,7 @@ func (h *ArticleHandler) Delete(c *gin.Context) {
 
 func (h *ArticleHandler) ChangeStatus(c *gin.Context) {
 	userID := c.GetUint("user_id")
+	role := c.GetString("role")
 	articleID := getArticleID(c)
 
 	var req changeStatusReq
@@ -184,7 +181,7 @@ func (h *ArticleHandler) ChangeStatus(c *gin.Context) {
 		return
 	}
 
-	err := h.svc.ChangeStatus(c.Request.Context(), userID, articleID, req.Status)
+	err := h.svc.ChangeStatus(c.Request.Context(), userID, role, articleID, req.Status)
 	if err != nil {
 		switch err {
 		case service.ErrArticleNotFound:
@@ -192,7 +189,7 @@ func (h *ArticleHandler) ChangeStatus(c *gin.Context) {
 		case service.ErrNotOwner:
 			response.Error(c, errcode.ErrNotArticleOwner)
 		default:
-			response.ErrorWithMsg(c, errcode.ErrInvalidStatusChange, err.Error())
+			response.Error(c, errcode.ErrInvalidStatusChange)
 		}
 		return
 	}
