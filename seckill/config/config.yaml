@@ -1,0 +1,26 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+db:
+  host: "mysql"
+  port: 3306
+  user: "seckill"
+  password: "seckill123"
+  name: "seckill"
+
+redis:
+  host: "redis"
+  port: 6379
+  password: ""
+  db: 0
+
+kafka:
+  brokers:
+    - "kafka:9092"
+  topic: "seckill.orders"
+  consumer_group: "seckill-order-consumer"
+
+log:
+  level: "debug"
+  format: "json"

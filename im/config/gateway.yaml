@@ -1,0 +1,25 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+db:
+  host: "172.19.160.1"
+  port: 3309
+  user: "im"
+  password: "im123"
+  name: "im"
+redis:
+  host: "172.19.160.1"
+  port: 6381
+jwt:
+  secret: "im-jwt-secret"
+  expire_hours: 24
+nodes:
+  - id: "node-1"
+    addr: "172.19.160.1:8081"
+  - id: "node-2"
+    addr: "172.19.160.1:8082"
+  - id: "node-3"
+    addr: "172.19.160.1:8083"
+log:
+  level: "debug"
+  format: "json"

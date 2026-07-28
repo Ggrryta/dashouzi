@@ -1,0 +1,12 @@
+services:
+  gateway:
+    build: .
+    container_name: api_gateway
+    ports: ["9000:9000"]
+    restart: unless-stopped
+
+  bloger:
+    image: bloger-app
+    container_name: gw_bloger
+    ports: ["8080:8080"]
+    restart: unless-stopped

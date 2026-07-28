@@ -1,0 +1,13 @@
+server:
+  host: "0.0.0.0"
+  port: 9000
+
+routes:
+  - path: "/blog"
+    upstream: "http://localhost:8080"
+  - path: "/seckill"
+    upstream: "http://localhost:8081"
+
+log:
+  level: "debug"
+  format: "json"
