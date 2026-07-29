@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -11,6 +12,7 @@ type Config struct {
 	DB     DBConfig     `mapstructure:"db"`
 	Redis  RedisConfig  `mapstructure:"redis"`
 	Kafka  KafkaConfig  `mapstructure:"kafka"`
+	Auth   AuthConfig   `mapstructure:"auth"`
 	Log    LogConfig    `mapstructure:"log"`
 }
 
@@ -45,6 +47,10 @@ type LogConfig struct {
 	Format string `mapstructure:"format"`
 }
 
+type AuthConfig struct {
+	Secret string `mapstructure:"secret"`
+}
+
 func (d DBConfig) DSN() string {
 	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		d.User, d.Password, d.Host, d.Port, d.Name)
@@ -69,6 +75,8 @@ func Load(path string) (*Config, error) {
 	v := viper.New()
 	v.SetConfigFile(path)
 	v.SetConfigType("yaml")
+	// 支持环境变量覆盖配置：DB_PASSWORD -> db.password、AUTH_SECRET -> auth.secret 等
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
 	if err := v.ReadInConfig(); err != nil {

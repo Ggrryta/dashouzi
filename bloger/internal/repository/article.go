@@ -9,6 +9,7 @@ import (
 )
 
 type ArticleRepository interface {
+	WithTx(tx *gorm.DB) ArticleRepository
 	Create(ctx context.Context, article *model.Article) error
 	FindByID(ctx context.Context, id uint) (*model.Article, error)
 	FindBySlug(ctx context.Context, slug string) (*model.Article, error)
@@ -27,6 +28,7 @@ type ArticleListParams struct {
 }
 
 type TagRepository interface {
+	WithTx(tx *gorm.DB) TagRepository
 	FindOrCreate(ctx context.Context, name string) (*model.Tag, error)
 	FindByNames(ctx context.Context, names []string) ([]*model.Tag, error)
 	List(ctx context.Context) ([]*model.Tag, error)
@@ -38,6 +40,10 @@ type articleRepo struct {
 
 func NewArticleRepo(db *gorm.DB) ArticleRepository {
 	return &articleRepo{db: db}
+}
+
+func (r *articleRepo) WithTx(tx *gorm.DB) ArticleRepository {
+	return &articleRepo{db: tx}
 }
 
 func (r *articleRepo) Create(_ context.Context, article *model.Article) error {
@@ -120,6 +126,10 @@ type tagRepo struct {
 
 func NewTagRepo(db *gorm.DB) TagRepository {
 	return &tagRepo{db: db}
+}
+
+func (r *tagRepo) WithTx(tx *gorm.DB) TagRepository {
+	return &tagRepo{db: tx}
 }
 
 func (r *tagRepo) FindOrCreate(_ context.Context, name string) (*model.Tag, error) {

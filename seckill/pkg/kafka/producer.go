@@ -3,9 +3,10 @@ package kafka
 import "context"
 
 type Message struct {
-	Key    string
-	Value  []byte
-	Offset int64
+	Key       string
+	Value     []byte
+	Offset    int64
+	Partition int
 }
 
 type Producer interface {

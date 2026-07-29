@@ -1,0 +1,18 @@
+# 编译产物
+*.exe
+*.exe~
+*.test
+*.out
+seckill
+/seckill
+
+# IDE
+.idea/
+.vscode/
+
+# 本地环境
+.env
+.env.local
+
+# 测试覆盖率
+coverage.txt

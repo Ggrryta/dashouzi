@@ -18,7 +18,7 @@ func init() {
 
 func TestPing_ReturnsPong(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	r := Setup(nil, nil, nil)
+	r := Setup(nil, nil, nil, "", "")
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/ping", nil)

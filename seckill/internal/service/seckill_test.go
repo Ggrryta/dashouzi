@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -41,14 +43,23 @@ func (m *mockRedisSeckill) Del(_ context.Context, _ ...string) error {
 	return nil
 }
 
-// Eval 模拟 Lua 脚本执行（线程安全）
-func (m *mockRedisSeckill) Eval(_ context.Context, _ string, keys []string, args ...interface{}) (int64, error) {
+// Eval 模拟 Lua 脚本执行（线程安全）。脚本包含 "srem" 时走回滚分支。
+func (m *mockRedisSeckill) Eval(_ context.Context, script string, keys []string, args ...interface{}) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	stockKey := keys[0]
 	boughtKey := keys[1]
 	userID := args[0].(string)
+
+	// 回滚分支：恢复库存 + 移除已购记录
+	if strings.Contains(script, "srem") {
+		m.data[stockKey]++
+		if m.sets[boughtKey] != nil {
+			delete(m.sets[boughtKey], atoi(userID))
+		}
+		return 1, nil
+	}
 
 	// 检查已购买
 	if m.sets[boughtKey] != nil && m.sets[boughtKey][atoi(userID)] {
@@ -170,4 +181,28 @@ func TestSeckill_OnePersonOneOrder(t *testing.T) {
 	assert.Equal(t, ResultAlreadyBought, result)
 	val, _ := redis.Get(context.Background(), "seckill:stock:1")
 	assert.Equal(t, "99", val) // 只扣了 1 件
+}
+
+// errProducer 投递始终失败，用于验证 Redis 回滚。
+type errProducer struct{}
+
+func (errProducer) Send(_ context.Context, _ string, _ string, _ []byte) error {
+	return errors.New("kafka unavailable")
+}
+
+func TestSeckill_RollbackOnSendFail(t *testing.T) {
+	redis := newMockRedisSeckill()
+	redis.data["seckill:stock:1"] = 100
+	svc := NewSeckillService(redis, errProducer{})
+
+	result, err := svc.Execute(context.Background(), 1, 1)
+	assert.Error(t, err)
+	assert.Equal(t, ResultSoldOut, result)
+
+	// 库存应回滚为 100
+	val, _ := redis.Get(context.Background(), "seckill:stock:1")
+	assert.Equal(t, "100", val)
+	// 用户不应被标记为已购
+	bought, _ := redis.SIsMember(context.Background(), "seckill:bought:1", 1)
+	assert.False(t, bought)
 }

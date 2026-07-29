@@ -10,6 +10,7 @@ var ErrNoMessage = errors.New("no message")
 type Consumer interface {
 	Read(ctx context.Context) (*Message, error)
 	Commit(ctx context.Context, msg *Message) error
+	Close() error
 }
 
 // MockConsumer for testing
@@ -40,3 +41,5 @@ func (c *MockConsumer) Commit(_ context.Context, msg *Message) error {
 	c.Committed[msg.Offset] = true
 	return nil
 }
+
+func (c *MockConsumer) Close() error { return nil }

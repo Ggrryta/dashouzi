@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
 	"bloger/internal/handler"
@@ -16,7 +17,7 @@ import (
 	"bloger/pkg/sensitive"
 )
 
-func Setup(db *gorm.DB, jwtService *jwt.JWT, sensitiveWords []string) *gin.Engine {
+func Setup(db *gorm.DB, rdb *redis.Client, jwtService *jwt.JWT, sensitiveWords []string) *gin.Engine {
 	r := gin.New()
 
 	r.Use(middleware.Recovery())
@@ -29,7 +30,7 @@ func Setup(db *gorm.DB, jwtService *jwt.JWT, sensitiveWords []string) *gin.Engin
 
 	articleRepo := repository.NewArticleRepo(db)
 	tagRepo := repository.NewTagRepo(db)
-	articleSvc := service.NewArticleService(articleRepo, tagRepo)
+	articleSvc := service.NewArticleService(db, articleRepo, tagRepo)
 	articleHandler := handler.NewArticleHandler(articleSvc)
 
 	commentRepo := repository.NewCommentRepo(db)
@@ -62,9 +63,9 @@ func Setup(db *gorm.DB, jwtService *jwt.JWT, sensitiveWords []string) *gin.Engin
 
 	v1 := r.Group("/api/v1")
 	{
-		// 限流保护
+		// 限流保护（Redis 滑动窗口，分布式共享配额）
 		rateLimit := v1.Group("")
-		rateLimit.Use(middleware.RateLimit(30, time.Minute))
+		rateLimit.Use(middleware.RateLimit(middleware.NewRedisLimiter(rdb, 30, time.Minute)))
 		{
 			rateLimit.POST("/users/login", userHandler.Login)
 			rateLimit.POST("/users/register", userHandler.Register)
@@ -100,7 +101,7 @@ func Setup(db *gorm.DB, jwtService *jwt.JWT, sensitiveWords []string) *gin.Engin
 
 			// 评论(限流)
 			commentAuth := auth.Group("")
-			commentAuth.Use(middleware.RateLimit(20, time.Minute))
+			commentAuth.Use(middleware.RateLimit(middleware.NewRedisLimiter(rdb, 20, time.Minute)))
 			{
 				commentAuth.POST("/comments", commentHandler.Create)
 				commentAuth.DELETE("/comments/:id", commentHandler.Delete)

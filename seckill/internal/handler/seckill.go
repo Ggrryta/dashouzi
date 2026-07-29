@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"seckill/internal/middleware"
 	"seckill/internal/service"
 	"seckill/pkg/errcode"
 	"seckill/pkg/response"
@@ -23,10 +24,10 @@ type buyReq struct {
 }
 
 func (h *SeckillHandler) Buy(c *gin.Context) {
-	userIDStr := c.GetHeader("X-User-Id")
-	userID, err := strconv.ParseUint(userIDStr, 10, 64)
-	if err != nil || userID == 0 {
-		response.Error(c, errcode.ErrBadRequest)
+	// userID 由 Auth 中间件注入，不再信任可伪造的请求头
+	userID, ok := middleware.UserIDFromContext(c)
+	if !ok || userID == 0 {
+		response.Error(c, errcode.ErrForbidden)
 		return
 	}
 
@@ -36,7 +37,7 @@ func (h *SeckillHandler) Buy(c *gin.Context) {
 		return
 	}
 
-	result, err := h.svc.Execute(c.Request.Context(), req.ItemID, uint(userID))
+	result, err := h.svc.Execute(c.Request.Context(), req.ItemID, userID)
 	if err != nil {
 		response.Error(c, errcode.ErrInternal)
 		return
@@ -49,16 +50,33 @@ func (h *SeckillHandler) Buy(c *gin.Context) {
 		response.Error(c, errcode.ErrSoldOut)
 	case service.ResultAlreadyBought:
 		response.Error(c, errcode.ErrAlreadyBought)
+	case service.ResultSessionClosed:
+		response.Error(c, errcode.ErrSessionClosed)
 	}
 }
 
 func (h *SeckillHandler) Result(c *gin.Context) {
-	itemID, _ := strconv.ParseUint(c.Param("item_id"), 10, 64)
-	userIDStr := c.GetHeader("X-User-Id")
-	userID, _ := strconv.ParseUint(userIDStr, 10, 64)
+	itemID, err := strconv.ParseUint(c.Param("item_id"), 10, 64)
+	if err != nil || itemID == 0 {
+		response.Error(c, errcode.ErrBadRequest)
+		return
+	}
+	userID, ok := middleware.UserIDFromContext(c)
+	if !ok || userID == 0 {
+		response.Error(c, errcode.ErrForbidden)
+		return
+	}
 
-	bought, _ := h.svc.IsBought(c.Request.Context(), uint(itemID), uint(userID))
-	stock, _ := h.svc.GetStock(c.Request.Context(), uint(itemID))
+	bought, err := h.svc.IsBought(c.Request.Context(), uint(itemID), userID)
+	if err != nil {
+		response.Error(c, errcode.ErrInternal)
+		return
+	}
+	stock, err := h.svc.GetStock(c.Request.Context(), uint(itemID))
+	if err != nil {
+		response.Error(c, errcode.ErrInternal)
+		return
+	}
 
 	response.Success(c, gin.H{
 		"item_id": itemID,

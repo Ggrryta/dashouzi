@@ -19,6 +19,7 @@ import (
 	"bloger/internal/config"
 	"bloger/internal/model"
 	"bloger/internal/router"
+	blogredis "bloger/pkg/redis"
 	"bloger/pkg/jwt"
 	"bloger/pkg/logger"
 )
@@ -79,8 +80,14 @@ func main() {
 	// 初始化 JWT
 	jwtService := jwt.New(cfg.JWT.Secret, cfg.JWT.ExpireHours)
 
+	// 初始化 Redis（限流等中间件依赖）
+	rdb, err := blogredis.New(cfg.Redis)
+	if err != nil {
+		logger.Log.Fatal("failed to connect redis", zap.Error(err))
+	}
+
 	// 启动路由
-	r := router.Setup(db, jwtService, cfg.Sensitive.Words)
+	r := router.Setup(db, rdb, jwtService, cfg.Sensitive.Words)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
@@ -107,5 +114,6 @@ func main() {
 		logger.Log.Error("server forced to shutdown", zap.Error(err))
 	}
 	sqlDB.Close()
+	rdb.Close()
 	logger.Log.Info("server exited")
 }

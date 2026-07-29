@@ -7,7 +7,6 @@ import (
 	"go.uber.org/zap"
 
 	"seckill/pkg/logger"
-	"seckill/pkg/response"
 )
 
 func Recovery() gin.HandlerFunc {
@@ -27,6 +26,3 @@ func Recovery() gin.HandlerFunc {
 		c.Next()
 	}
 }
-
-// 确保接口实现
-var _ = response.Success

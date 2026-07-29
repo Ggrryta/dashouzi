@@ -1,7 +1,6 @@
 package router
 
 import (
-	"context"
 	"time"
 
 	"gorm.io/gorm"
@@ -15,21 +14,26 @@ import (
 	"seckill/pkg/response"
 )
 
-type Producer interface {
-	Send(ctx context.Context, topic, key string, value []byte) error
-}
-
-
-func Setup(db *gorm.DB, redis repository.RedisClient, producer Producer) *gin.Engine {
+// Setup 组装依赖并注册路由。
+//   - db 为 nil 时仅注册 ping（供单元测试）
+//   - authSecret 为空时 buy/result 路由不挂鉴权（仅测试场景）
+//   - orderTopic 注入到秒杀服务用于 Kafka 投递
+func Setup(db *gorm.DB, redis repository.RedisClient, producer service.Producer, authSecret, orderTopic string) *gin.Engine {
 	r := gin.New()
 
 	r.Use(middleware.Recovery())
 	r.Use(middleware.Logger())
 
-	// 初始化依赖（nil DB 仅用于 ping 测试）
 	var sessionHandler *handler.SessionHandler
 	var itemHandler *handler.ItemHandler
 	var seckillHandler *handler.SeckillHandler
+	var cmdRedis repository.RedisCmdClient
+
+	if redis != nil {
+		if c, ok := redis.(repository.RedisCmdClient); ok {
+			cmdRedis = c
+		}
+	}
 
 	if db != nil {
 		sessionRepo := repository.NewSessionRepo(db)
@@ -40,9 +44,9 @@ func Setup(db *gorm.DB, redis repository.RedisClient, producer Producer) *gin.En
 		itemSvc := service.NewItemService(itemRepo, sessionRepo)
 		itemHandler = handler.NewItemHandler(itemSvc, redis)
 
-		// seckill 需要 RedisCmdClient
-		if cmdRedis, ok := redis.(repository.RedisCmdClient); ok {
-			seckillSvc := service.NewSeckillService(cmdRedis, producer)
+		if cmdRedis != nil {
+			validator := service.NewItemSessionValidator(itemRepo, sessionRepo)
+			seckillSvc := service.NewSeckillServiceWithValidation(cmdRedis, producer, validator, orderTopic)
 			seckillHandler = handler.NewSeckillHandler(seckillSvc)
 		}
 	}
@@ -65,12 +69,13 @@ func Setup(db *gorm.DB, redis repository.RedisClient, producer Producer) *gin.En
 		v1.POST("/items/:id/preheat", itemHandler.Preheat)
 	}
 	if seckillHandler != nil {
+		auth := middleware.Auth(authSecret)
 		buy := v1.Group("/buy")
-		buy.Use(middleware.RateLimit(5, time.Second)) // 限流：5次/秒/用户
+		buy.Use(auth, middleware.RateLimit(cmdRedis, 5, time.Second)) // 限流：5次/秒/用户
 		{
 			buy.POST("", seckillHandler.Buy)
 		}
-		v1.GET("/result/:item_id", seckillHandler.Result)
+		v1.GET("/result/:item_id", auth, seckillHandler.Result)
 	}
 
 	return r

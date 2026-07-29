@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"seckill/internal/model"
 	"seckill/internal/repository"
@@ -80,6 +79,3 @@ func PreheatStock(ctx context.Context, redis repository.RedisClient, item *model
 
 	return redis.Set(ctx, key, item.TotalStock, 0) // 不设过期，对账用
 }
-
-// 确保接口编译
-var _ = time.Now

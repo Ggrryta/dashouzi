@@ -1,17 +1,20 @@
 server:
-  host: "0.0.0.0"
+  # 监听地址必须用真实可路由地址；开发容器内可用服务名，生产由 SERVER_HOST 注入
+  host: "app"
   port: 8080
 
 db:
   host: "mysql"
   port: 3306
   user: "seckill"
+  # 开发默认值，生产通过 DB_PASSWORD 环境变量覆盖
   password: "seckill123"
   name: "seckill"
 
 redis:
   host: "redis"
   port: 6379
+  # 生产通过 REDIS_PASSWORD 环境变量覆盖
   password: ""
   db: 0
 
@@ -20,6 +23,10 @@ kafka:
     - "kafka:9092"
   topic: "seckill.orders"
   consumer_group: "seckill-order-consumer"
+
+auth:
+  # HMAC 签名密钥，生产必须通过 AUTH_SECRET 环境变量覆盖，切勿提交真实密钥
+  secret: "dev-secret-change-me"
 
 log:
   level: "debug"

@@ -9,6 +9,8 @@ import (
 	"time"
 	"unicode"
 
+	"gorm.io/gorm"
+
 	"bloger/internal/model"
 	"bloger/internal/repository"
 )
@@ -71,12 +73,24 @@ func validateStatusTransition(from, to string) error {
 }
 
 type ArticleService struct {
+	db          *gorm.DB
 	articleRepo repository.ArticleRepository
 	tagRepo     repository.TagRepository
 }
 
-func NewArticleService(ar repository.ArticleRepository, tr repository.TagRepository) *ArticleService {
-	return &ArticleService{articleRepo: ar, tagRepo: tr}
+func NewArticleService(db *gorm.DB, ar repository.ArticleRepository, tr repository.TagRepository) *ArticleService {
+	return &ArticleService{db: db, articleRepo: ar, tagRepo: tr}
+}
+
+// runInTx 在事务中执行 fn，保证跨 repo 写操作原子性。
+// db 为 nil 时（单元测试 mock 场景）降级为直接调用，不开启事务。
+func (s *ArticleService) runInTx(ctx context.Context, fn func(ar repository.ArticleRepository, tr repository.TagRepository) error) error {
+	if s.db == nil {
+		return fn(s.articleRepo, s.tagRepo)
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(s.articleRepo.WithTx(tx), s.tagRepo.WithTx(tx))
+	})
 }
 
 // Create 创建文章，默认状态 draft。
@@ -96,18 +110,20 @@ func (s *ArticleService) Create(ctx context.Context, authorID uint, input Create
 		Status:   "draft",
 	}
 
-	// 处理标签
-	if len(input.TagNames) > 0 {
-		for _, name := range input.TagNames {
-			tag, err := s.tagRepo.FindOrCreate(ctx, name)
-			if err != nil {
-				return nil, err
+	err := s.runInTx(ctx, func(ar repository.ArticleRepository, tr repository.TagRepository) error {
+		// 处理标签
+		if len(input.TagNames) > 0 {
+			for _, name := range input.TagNames {
+				tag, err := tr.FindOrCreate(ctx, name)
+				if err != nil {
+					return err
+				}
+				article.Tags = append(article.Tags, *tag)
 			}
-			article.Tags = append(article.Tags, *tag)
 		}
-	}
-
-	if err := s.articleRepo.Create(ctx, article); err != nil {
+		return ar.Create(ctx, article)
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -192,19 +208,20 @@ func (s *ArticleService) Update(ctx context.Context, userID uint, role string, a
 		article.CoverURL = input.CoverURL
 	}
 
-	// 更新标签
-	if input.TagNames != nil {
-		article.Tags = nil
-		for _, name := range input.TagNames {
-			tag, err := s.tagRepo.FindOrCreate(ctx, name)
-			if err != nil {
-				return err
+	return s.runInTx(ctx, func(ar repository.ArticleRepository, tr repository.TagRepository) error {
+		// 更新标签
+		if input.TagNames != nil {
+			article.Tags = nil
+			for _, name := range input.TagNames {
+				tag, err := tr.FindOrCreate(ctx, name)
+				if err != nil {
+					return err
+				}
+				article.Tags = append(article.Tags, *tag)
 			}
-			article.Tags = append(article.Tags, *tag)
 		}
-	}
-
-	return s.articleRepo.Update(ctx, article)
+		return ar.Update(ctx, article)
+	})
 }
 
 // Delete 删除文章。校验所有权(admin 可跨用户)。

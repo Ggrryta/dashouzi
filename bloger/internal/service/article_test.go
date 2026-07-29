@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"gorm.io/gorm"
 
 	"bloger/internal/model"
 	"bloger/internal/repository"
@@ -20,6 +21,11 @@ type mockArticleRepo struct {
 
 func newMockArticleRepo() *mockArticleRepo {
 	return &mockArticleRepo{articles: make(map[uint]*model.Article), nextID: 1}
+}
+
+// WithTx 返回自身：mock 不需要真实事务，单元测试通过 runInTx 的 nil db 降级路径执行。
+func (m *mockArticleRepo) WithTx(_ *gorm.DB) repository.ArticleRepository {
+	return m
 }
 
 func (m *mockArticleRepo) Create(_ context.Context, a *model.Article) error {
@@ -91,6 +97,11 @@ type mockTagRepo struct {
 
 func newMockTagRepo() *mockTagRepo {
 	return &mockTagRepo{tagsByName: make(map[string]*model.Tag), nextID: 1}
+}
+
+// WithTx 返回自身：mock 不需要真实事务。
+func (m *mockTagRepo) WithTx(_ *gorm.DB) repository.TagRepository {
+	return m
 }
 
 func (m *mockTagRepo) FindOrCreate(_ context.Context, name string) (*model.Tag, error) {
@@ -175,11 +186,11 @@ func TestValidateStatusTransition_UnknownStatus(t *testing.T) {
 func TestArticleCreate_Success(t *testing.T) {
 	articleRepo := newMockArticleRepo()
 	tagRepo := newMockTagRepo()
-	svc := NewArticleService(articleRepo, tagRepo)
+	svc := NewArticleService(nil, articleRepo, tagRepo)
 
 	article, err := svc.Create(context.Background(), 1, CreateArticleInput{
-		Title:   "Test Article",
-		Content: "Hello World",
+		Title:    "Test Article",
+		Content:  "Hello World",
 		TagNames: []string{"Go", "后端"},
 	})
 
@@ -191,7 +202,7 @@ func TestArticleCreate_Success(t *testing.T) {
 }
 
 func TestArticleCreate_EmptyTitle(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 
 	_, err := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "", Content: "Hello",
@@ -200,7 +211,7 @@ func TestArticleCreate_EmptyTitle(t *testing.T) {
 }
 
 func TestArticleCreate_DefaultDraftStatus(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 
 	a, err := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "Test", Content: "Test",
@@ -212,7 +223,7 @@ func TestArticleCreate_DefaultDraftStatus(t *testing.T) {
 // ====== GetByID 测试 ======
 
 func TestArticleGetPublicByID_Success(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 
 	created, _ := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "Test", Content: "Test",
@@ -226,7 +237,7 @@ func TestArticleGetPublicByID_Success(t *testing.T) {
 }
 
 func TestArticleGetPublicByID_NotPublished_ReturnsNotFound(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 
 	created, _ := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "Draft", Content: "Test",
@@ -237,7 +248,7 @@ func TestArticleGetPublicByID_NotPublished_ReturnsNotFound(t *testing.T) {
 }
 
 func TestArticleGetByID_NotFound(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 
 	_, err := svc.GetByID(context.Background(), 999)
 	assert.Error(t, err)
@@ -246,7 +257,7 @@ func TestArticleGetByID_NotFound(t *testing.T) {
 // ====== ChangeStatus 测试 ======
 
 func TestArticleChangeStatus_ValidTransition(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 	a, _ := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "Test", Content: "Test",
 	})
@@ -259,7 +270,7 @@ func TestArticleChangeStatus_ValidTransition(t *testing.T) {
 }
 
 func TestArticleChangeStatus_InvalidTransition(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 	a, _ := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "Test", Content: "Test",
 	})
@@ -269,7 +280,7 @@ func TestArticleChangeStatus_InvalidTransition(t *testing.T) {
 }
 
 func TestArticleChangeStatus_NotOwner(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 	a, _ := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "Test", Content: "Test",
 	})
@@ -279,7 +290,7 @@ func TestArticleChangeStatus_NotOwner(t *testing.T) {
 }
 
 func TestArticleChangeStatus_AdminCanOverride(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 	a, _ := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "Test", Content: "Test",
 	})
@@ -292,7 +303,7 @@ func TestArticleChangeStatus_AdminCanOverride(t *testing.T) {
 // ====== Update 测试 ======
 
 func TestArticleUpdate_Success(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 	a, _ := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "Old", Content: "Old", TagNames: []string{"Go"},
 	})
@@ -311,7 +322,7 @@ func TestArticleUpdate_Success(t *testing.T) {
 }
 
 func TestArticleUpdate_NotOwner(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 	a, _ := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "Test", Content: "Test",
 	})
@@ -323,7 +334,7 @@ func TestArticleUpdate_NotOwner(t *testing.T) {
 // ====== Delete 测试 ======
 
 func TestArticleDelete_Success(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 	a, _ := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "Test", Content: "Test",
 	})
@@ -336,7 +347,7 @@ func TestArticleDelete_Success(t *testing.T) {
 }
 
 func TestArticleDelete_NotOwner(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 	a, _ := svc.Create(context.Background(), 1, CreateArticleInput{
 		Title: "Test", Content: "Test",
 	})
@@ -348,7 +359,7 @@ func TestArticleDelete_NotOwner(t *testing.T) {
 // ====== List 测试 ======
 
 func TestArticleList_Pagination(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 	// 创建 3 篇已发布文章
 	for i := 0; i < 3; i++ {
 		a, _ := svc.Create(context.Background(), 1, CreateArticleInput{
@@ -368,7 +379,7 @@ func TestArticleList_Pagination(t *testing.T) {
 }
 
 func TestArticleList_OnlyPublished(t *testing.T) {
-	svc := NewArticleService(newMockArticleRepo(), newMockTagRepo())
+	svc := NewArticleService(nil, newMockArticleRepo(), newMockTagRepo())
 
 	a1, _ := svc.Create(context.Background(), 1, CreateArticleInput{Title: "Pub", Content: "C"})
 	a1.Status = "published"
