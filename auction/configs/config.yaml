@@ -1,0 +1,43 @@
+app:
+  name: auction
+  env: dev
+  port: 8080
+  read_timeout: 10s
+  write_timeout: 10s
+
+log:
+  level: info
+  format: json
+  output: stdout
+
+mysql:
+  host: mysql
+  port: 3306
+  user: auction
+  password: auction123
+  database: auction
+  charset: utf8mb4
+  max_open_conns: 50
+  max_idle_conns: 10
+  conn_max_lifetime: 1h
+
+redis:
+  addr: redis:6379
+  password: ""
+  db: 0
+  pool_size: 50
+  min_idle_conns: 10
+
+auction:
+  # 单用户对单商品出价间隔（秒）
+  bid_interval_seconds: 2
+  # WebSocket 心跳间隔（秒）
+  heartbeat_interval_seconds: 30
+  # WebSocket 心跳超时（秒）
+  heartbeat_timeout_seconds: 60
+  # 兜底扫描周期（秒）
+  scanner_interval_seconds: 5
+  # room_state 本地缓存时间（毫秒）
+  snapshot_cache_ms: 500
+  # 单房间最大在线人数
+  max_room_online: 5000

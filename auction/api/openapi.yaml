@@ -1,0 +1,889 @@
+openapi: 3.0.3
+info:
+  title: 实时拍卖系统 API
+  description: |
+    多房间、每房间多商品实时拍卖系统接口契约。
+    - HTTP 接口用于房间/商品管理和出价历史查询
+    - WebSocket 接口用于实时出价、状态同步和落槌广播
+  version: 1.0.0
+  contact:
+    name: auction team
+
+servers:
+  - url: http://localhost:8080
+    description: 本地开发环境
+
+paths:
+  /api/v1/rooms:
+    post:
+      summary: 创建房间
+      description: 卖家创建一个新的拍卖房间。
+      operationId: createRoom
+      tags:
+        - room
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoomRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                code: 0
+                message: "ok"
+                data:
+                  id: 1
+                  name: "今晚拍卖场"
+                  ownerId: 42
+                  status: "active"
+                  createdAt: "2026-07-31T10:00:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    get:
+      summary: 查询房间列表
+      description: 分页查询所有房间，按创建时间倒序。
+      operationId: listRooms
+      tags:
+        - room
+      parameters:
+        - $ref: '#/components/parameters/PageCursor'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/rooms/{roomId}:
+    get:
+      summary: 查询房间详情
+      description: 查询指定房间的基本信息。
+      operationId: getRoom
+      tags:
+        - room
+      parameters:
+        - $ref: '#/components/parameters/RoomId'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/rooms/{roomId}/items:
+    post:
+      summary: 创建商品
+      description: 卖家在指定房间内创建一个拍卖商品。
+      operationId: createItem
+      tags:
+        - item
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/RoomId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateItemRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    get:
+      summary: 查询房间内商品列表
+      description: 查询指定房间内的所有商品摘要。
+      operationId: listRoomItems
+      tags:
+        - item
+      parameters:
+        - $ref: '#/components/parameters/RoomId'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/items/{itemId}:
+    get:
+      summary: 查询商品详情
+      description: 查询指定商品的完整信息，包括当前可接受最低出价。
+      operationId: getItem
+      tags:
+        - item
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      summary: 删除商品
+      description: 仅商品处于 pending 状态时，卖家可删除该商品。
+      operationId: deleteItem
+      tags:
+        - item
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '204':
+          description: 删除成功
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 商品状态不允许删除
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                code: 200004
+                message: "只有 pending 状态的商品可以删除"
+                data: null
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/items/{itemId}/bids:
+    post:
+      summary: 出价（REST 路径）
+      description: |
+        通过 HTTP 提交出价，主要用于性能压测和前端降级场景。
+        主实时路径仍推荐使用 WebSocket `bid` 消息。
+      operationId: placeBid
+      tags:
+        - bid
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/ItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceBidRequest'
+      responses:
+        '201':
+          description: 出价成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                code: 0
+                message: "ok"
+                data:
+                  id: 10001
+                  itemId: 1
+                  bidderId: 42
+                  amount: 120000
+                  createdAt: "2026-07-31T14:03:10.000Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 出价被拒绝（过低、已结束、限流等）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                code: 300001
+                message: "出价过低"
+                data: null
+        '429':
+          description: 出价过于频繁
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                code: 300002
+                message: "出价过于频繁，请稍后再试"
+                data: null
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    get:
+      summary: 查询出价历史
+      description: 查询指定商品的出价历史，按时间倒序，游标分页。
+      operationId: listItemBids
+      tags:
+        - bid
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+        - $ref: '#/components/parameters/PageCursor'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /ws/rooms/{roomId}:
+    get:
+      summary: WebSocket 连接房间
+      description: |
+        建立 WebSocket 长连接，加入指定房间。
+        连接建立后客户端必须先发送 `join` 消息完成握手。
+        所有实时事件通过该连接推送。
+      operationId: connectRoom
+      tags:
+        - websocket
+      parameters:
+        - $ref: '#/components/parameters/RoomId'
+        - name: userId
+          in: query
+          required: true
+          description: 观众用户 ID，用于断线重连识别身份。身份以该 URL 参数为准。
+          schema:
+            type: integer
+            format: int64
+            example: 42
+      responses:
+        '101':
+          description: WebSocket 协议升级成功
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    XUserId:
+      name: X-User-Id
+      in: header
+      required: true
+      description: 当前操作用户 ID，本项目用于模拟用户身份
+      schema:
+        type: integer
+        format: int64
+        example: 42
+
+    RoomId:
+      name: roomId
+      in: path
+      required: true
+      description: 房间 ID
+      schema:
+        type: integer
+        format: int64
+
+    ItemId:
+      name: itemId
+      in: path
+      required: true
+      description: 商品 ID
+      schema:
+        type: integer
+        format: int64
+
+    PageCursor:
+      name: cursor
+      in: query
+      required: false
+      description: 游标，为空表示第一页
+      schema:
+        type: string
+
+    PageSize:
+      name: size
+      in: query
+      required: false
+      description: 每页条数，默认 20，最大 100
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+
+  schemas:
+    ApiResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+      properties:
+        code:
+          type: integer
+          description: 业务错误码，0 表示成功，非 0 表示具体业务错误
+        message:
+          type: string
+          description: 响应描述
+        data:
+          type: object
+          nullable: true
+          description: 业务数据，错误时通常为 null
+
+    CreateRoomRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 房间名称
+          example: "今晚拍卖场"
+        description:
+          type: string
+          maxLength: 512
+          description: 房间描述
+          example: "精品数码专场"
+
+    RoomResponse:
+      type: object
+      required:
+        - id
+        - name
+        - ownerId
+        - status
+        - createdAt
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 房间 ID
+        name:
+          type: string
+          description: 房间名称
+        description:
+          type: string
+          description: 房间描述
+        ownerId:
+          type: integer
+          format: int64
+          description: 房间创建者（卖家）用户 ID
+        status:
+          type: string
+          enum: [online, closed]
+          description: 房间状态，online 表示可加入，closed 表示已关闭
+        createdAt:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    RoomListResponse:
+      type: object
+      required:
+        - items
+        - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoomResponse'
+        nextCursor:
+          type: string
+          nullable: true
+          description: 下一页游标，为空表示没有更多数据
+
+    PlaceBidRequest:
+      type: object
+      required:
+        - amount
+      properties:
+        amount:
+          type: integer
+          minimum: 1
+          description: 出价金额，单位分
+          example: 120000
+
+    CreateItemRequest:
+      type: object
+      required:
+        - title
+        - startPrice
+        - minIncrement
+        - startTime
+        - endTime
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 商品标题
+          example: "iPhone 15 Pro"
+        description:
+          type: string
+          maxLength: 1024
+          description: 商品描述
+        imageUrl:
+          type: string
+          format: uri
+          maxLength: 512
+          description: 商品图片 URL
+        startPrice:
+          type: integer
+          minimum: 1
+          description: 起拍价，单位分
+          example: 100000
+        minIncrement:
+          type: integer
+          minimum: 1
+          description: 最小加价幅度，单位分
+          example: 1000
+        startTime:
+          type: string
+          format: date-time
+          description: 拍卖开始时间
+        endTime:
+          type: string
+          format: date-time
+          description: 拍卖结束时间
+
+    ItemResponse:
+      type: object
+      required:
+        - id
+        - roomId
+        - sellerId
+        - title
+        - startPrice
+        - minIncrement
+        - status
+        - startTime
+        - endTime
+        - currentPrice
+        - nextMinBid
+        - createdAt
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 商品 ID
+        roomId:
+          type: integer
+          format: int64
+          description: 所属房间 ID
+        sellerId:
+          type: integer
+          format: int64
+          description: 卖家用户 ID
+        title:
+          type: string
+          description: 商品标题
+        description:
+          type: string
+          description: 商品描述
+        imageUrl:
+          type: string
+          description: 商品图片 URL
+        startPrice:
+          type: integer
+          description: 起拍价，单位分
+        minIncrement:
+          type: integer
+          description: 最小加价幅度，单位分
+        status:
+          type: string
+          enum: [pending, live, closing, sold, failed]
+          description: 商品状态
+        startTime:
+          type: string
+          format: date-time
+          description: 拍卖开始时间
+        endTime:
+          type: string
+          format: date-time
+          description: 拍卖结束时间
+        currentPrice:
+          type: integer
+          description: 当前最高价；无人出价时等于起拍价；落槌流拍时等于起拍价
+        nextMinBid:
+          type: integer
+          description: 下一个合法出价的最低金额。无人出价时等于 startPrice，有人出价时等于 currentPrice + minIncrement
+        topBidderId:
+          type: integer
+          format: int64
+          nullable: true
+          description: 当前最高出价人用户 ID，无人出价时为 null
+        winnerId:
+          type: integer
+          format: int64
+          nullable: true
+          description: 中标者用户 ID，落槌后有效，流拍时为 null
+        createdAt:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    ItemListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemResponse'
+
+    BidResponse:
+      type: object
+      required:
+        - id
+        - itemId
+        - bidderId
+        - amount
+        - createdAt
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 出价记录 ID
+        itemId:
+          type: integer
+          format: int64
+          description: 商品 ID
+        bidderId:
+          type: integer
+          format: int64
+          description: 出价人用户 ID
+        amount:
+          type: integer
+          description: 出价金额，单位分
+        createdAt:
+          type: string
+          format: date-time
+          description: 出价时间
+
+    BidListResponse:
+      type: object
+      required:
+        - items
+        - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BidResponse'
+        nextCursor:
+          type: string
+          nullable: true
+          description: 下一页游标
+
+    # WebSocket 消息协议
+    WSJoinMessage:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [join]
+          description: 握手消息，无额外字段。用户身份以 URL 参数 userId 为准。
+
+    WSPingMessage:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [ping]
+
+    WSBidMessage:
+      type: object
+      required:
+        - type
+        - itemId
+        - amount
+      properties:
+        type:
+          type: string
+          enum: [bid]
+        itemId:
+          type: integer
+          format: int64
+          description: 出价商品 ID
+        amount:
+          type: integer
+          description: 出价金额，单位分
+
+    WSRoomStateMessage:
+      type: object
+      required:
+        - type
+        - roomId
+        - items
+      properties:
+        type:
+          type: string
+          enum: [room_state]
+        roomId:
+          type: integer
+          format: int64
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemResponse'
+
+    WSItemStateMessage:
+      type: object
+      required:
+        - type
+        - itemId
+        - status
+        - currentPrice
+        - nextMinBid
+      properties:
+        type:
+          type: string
+          enum: [item_state]
+        itemId:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [pending, live, closing, sold, failed]
+        currentPrice:
+          type: integer
+          description: 当前最高价
+        nextMinBid:
+          type: integer
+          description: 下一个合法出价最低金额
+        topBidderId:
+          type: integer
+          format: int64
+          nullable: true
+
+    WSBidUpdateMessage:
+      type: object
+      required:
+        - type
+        - itemId
+        - bidderId
+        - amount
+        - currentPrice
+        - nextMinBid
+      properties:
+        type:
+          type: string
+          enum: [bid_update]
+        itemId:
+          type: integer
+          format: int64
+        bidderId:
+          type: integer
+          format: int64
+        amount:
+          type: integer
+          description: 本次出价金额
+        currentPrice:
+          type: integer
+          description: 当前最高价
+        nextMinBid:
+          type: integer
+          description: 下一个合法出价最低金额
+
+    WSHammerMessage:
+      type: object
+      required:
+        - type
+        - itemId
+        - status
+        - winnerId
+        - currentPrice
+      properties:
+        type:
+          type: string
+          enum: [hammer]
+        itemId:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [sold, failed]
+        winnerId:
+          type: integer
+          format: int64
+          nullable: true
+        currentPrice:
+          type: integer
+          description: 成交价。成交时为最高出价，流拍时等于起拍价
+
+    WSPongMessage:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [pong]
+
+    WSErrorMessage:
+      type: object
+      required:
+        - type
+        - code
+        - message
+      properties:
+        type:
+          type: string
+          enum: [error]
+        code:
+          type: integer
+          description: 业务错误码
+        message:
+          type: string
+        requestType:
+          type: string
+          description: 触发错误的原始消息类型
+
+  responses:
+    BadRequest:
+      description: 请求参数错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+          example:
+            code: 100001
+            message: "房间名称不能为空"
+            data: null
+
+    Forbidden:
+      description: 权限不足
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+          example:
+            code: 100002
+            message: "只有房间创建者可以创建商品"
+            data: null
+
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+          example:
+            code: 100003
+            message: "房间不存在"
+            data: null
+
+    InternalError:
+      description: 服务器内部错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+          example:
+            code: 900001
+            message: "服务器内部错误"
+            data: null
+
+  # 业务错误码规范
+  # 格式：6位数字，前三位表示模块，后三位表示具体错误
+  # 000xxx: 通用
+  # 100xxx: 房间
+  # 200xxx: 商品
+  # 300xxx: 出价
+  # 400xxx: WebSocket
+  # 900xxx: 系统
+
+# WebSocket 协议补充说明（非 OpenAPI 标准，以 x- 扩展描述）
+x-websocket:
+  endpoint: /ws/rooms/{roomId}?userId={userId}
+  description: |
+    建立长连接后，客户端须立即发送 type=join 消息完成握手。
+    服务端在收到 join 后推送 room_state 快照。
+    用户身份以 URL 参数 userId 为准，join 消息中不再携带 user_id。
+  connection_lifecycle:
+    - 客户端调用 WebSocket 握手，URL 中携带 roomId 和 userId
+    - 连接建立后，客户端发送 { "type": "join" }
+    - 服务端验证房间存在、用户可加入后，推送 room_state 快照
+    - 之后服务端主动推送 item_state / bid_update / hammer 事件
+    - 客户端可发送 ping / bid 消息
+    - 心跳超时或协议错误时服务端断开连接
+  client_messages:
+    - $ref: '#/components/schemas/WSJoinMessage'
+    - $ref: '#/components/schemas/WSPingMessage'
+    - $ref: '#/components/schemas/WSBidMessage'
+  server_messages:
+    - $ref: '#/components/schemas/WSRoomStateMessage'
+    - $ref: '#/components/schemas/WSItemStateMessage'
+    - $ref: '#/components/schemas/WSBidUpdateMessage'
+    - $ref: '#/components/schemas/WSHammerMessage'
+    - $ref: '#/components/schemas/WSPongMessage'
+    - $ref: '#/components/schemas/WSErrorMessage'
+  state_broadcast:
+    - event: item_state
+      trigger: 商品到达 start_time，由 pending 进入 live
+    - event: item_state
+      trigger: 商品到达 end_time，由 live 进入 closing
+    - event: hammer
+      trigger: 落槌完成，状态由 closing 进入 sold 或 failed
+  heartbeat:
+    intervalSeconds: 30
+    timeoutSeconds: 60
+  error_handling:
+    - scenario: 出价业务错误（过低、已结束、限流）
+      action: 发送 error 消息，保持连接
+    - scenario: 消息格式错误或未知 type
+      action: 发送 error 消息，保持连接；连续多次可断连
+    - scenario: 身份校验失败或房间不存在
+      action: 握手或 join 阶段直接断连
