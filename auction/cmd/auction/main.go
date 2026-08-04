@@ -15,7 +15,10 @@ import (
 
 	"auction/internal/config"
 	"auction/internal/handler"
+	"auction/internal/repository"
 	"auction/internal/router"
+	"auction/internal/scheduler"
+	"auction/internal/service"
 	"auction/pkg/db"
 	"auction/pkg/logger"
 	redisclient "auction/pkg/redis"
@@ -59,9 +62,25 @@ func main() {
 	}
 	logger.Log.Info("redis connected")
 
-	healthHandler := handler.NewHealthHandler(dbConn.DB(), redisClient)
+	// 初始化数据层
+	roomRepo := repository.NewRoomRepository(dbConn.DB())
+	itemRepo := repository.NewItemRepository(dbConn.DB())
 
-	r := router.NewRouter(healthHandler)
+	// 初始化服务层
+	roomService := service.NewRoomService(roomRepo)
+	itemService := service.NewItemService(itemRepo, roomRepo)
+
+	// 初始化 handler
+	healthHandler := handler.NewHealthHandler(dbConn.DB(), redisClient)
+	roomHandler := handler.NewRoomHandler(roomService)
+	itemHandler := handler.NewItemHandler(itemService)
+
+	// 初始化调度器
+	itemScheduler := scheduler.NewItemScheduler(itemService, cfg.Auction.ScannerInterval())
+	itemScheduler.Start()
+	defer itemScheduler.Stop()
+
+	r := router.NewRouter(healthHandler, roomHandler, itemHandler)
 
 	addr := fmt.Sprintf(":%d", cfg.App.Port)
 	srv := &http.Server{
