@@ -1,0 +1,25 @@
+# 环境配置
+.env
+.env.local
+
+# Go
+backend/vendor/
+*.exe
+*.exe~
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Docker
+docker/data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

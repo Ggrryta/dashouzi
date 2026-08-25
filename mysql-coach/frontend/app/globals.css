@@ -1,0 +1,29 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Markdown 代码块样式 */
+.prose pre {
+  background: #0f172a !important;
+  border: 1px solid #334155;
+  border-radius: 0.5rem;
+}
+
+.prose code {
+  color: #67e8f9;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
