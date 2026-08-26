@@ -86,11 +86,24 @@ func (s *CoachService) SubmitAnswer(ctx context.Context, req SubmitAnswerRequest
 		return nil, err
 	}
 
-	// 2. 记录学生回答
-	s.sessionRepo.AppendMessage(ctx, req.SessionID, "student", req.Answer, req.CurrentLevel)
+	// 1.5 加载会话，以数据库中的 current_level 为权威进度（不信任前端传参）
+	session, err := s.sessionRepo.GetByID(ctx, req.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("load session: %w", err)
+	}
+	if session.Status == "completed" {
+		return nil, fmt.Errorf("session %s already completed", req.SessionID)
+	}
+	currentLevel := session.CurrentLevel
+	if currentLevel <= 0 {
+		currentLevel = 1
+	}
+
+	// 2. 记录学生回答（使用权威层级）
+	s.sessionRepo.AppendMessage(ctx, req.SessionID, "student", req.Answer, currentLevel)
 
 	// 3. 解析当前层策略
-	level, err := s.parseLevel(scenario.Strategy, req.CurrentLevel)
+	level, err := s.parseLevel(scenario.Strategy, currentLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -105,17 +118,19 @@ func (s *CoachService) SubmitAnswer(ctx context.Context, req SubmitAnswerRequest
 	var coachReply string
 	var nextLevel int
 	var isCompleted bool
+	var mastery int
 
 	if judgment.IsCorrect {
 		// 答对 → 进下一层
 		nextLevel = level.NextIfCorrect
-		s.sessionRepo.UpdateProgress(ctx, req.SessionID, req.CurrentLevel, true, req.HintsUsed)
-		
+		s.sessionRepo.UpdateProgress(ctx, req.SessionID, currentLevel, true, req.HintsUsed)
+
 		if nextLevel == 0 || nextLevel > scenario.Strategy.TotalLevels {
 			// 全部完成
 			isCompleted = true
 			coachReply = "很好！你已经完成了所有层级的分析。让我帮你整理一份总结笔记。"
-			s.sessionRepo.Complete(ctx, req.SessionID, s.calcMasteryScore(req.SessionID, scenario.Strategy.TotalLevels))
+			mastery = s.calcMasteryScore(scenario.Strategy.TotalLevels, session.HintsUsed+req.HintsUsed, len(session.LevelsFailed))
+			s.sessionRepo.Complete(ctx, req.SessionID, mastery)
 		} else {
 			// 进下一层
 			nextLevelStrategy, _ := s.parseLevel(scenario.Strategy, nextLevel)
@@ -123,9 +138,9 @@ func (s *CoachService) SubmitAnswer(ctx context.Context, req SubmitAnswerRequest
 		}
 	} else {
 		// 答错 → 给提示
-		nextLevel = req.CurrentLevel
-		s.sessionRepo.UpdateProgress(ctx, req.SessionID, req.CurrentLevel, false, req.HintsUsed)
-		
+		nextLevel = currentLevel
+		s.sessionRepo.UpdateProgress(ctx, req.SessionID, currentLevel, false, req.HintsUsed)
+
 		if mistakeResponse != "" {
 			coachReply = mistakeResponse
 		} else {
@@ -141,7 +156,7 @@ func (s *CoachService) SubmitAnswer(ctx context.Context, req SubmitAnswerRequest
 	if isCompleted {
 		note, err = s.generateNote(ctx, req.SessionID, req.UserID, scenario)
 		if err == nil {
-			s.markCheckpoints(ctx, req.UserID, scenario, req.SessionID)
+			s.markCheckpoints(ctx, req.UserID, scenario, req.SessionID, mastery)
 		}
 	}
 
@@ -307,11 +322,18 @@ func (s *CoachService) buildCoachReply(judgment Judgment, level *models.Strategy
 }
 
 // calcMasteryScore 计算掌握度（1~5）
-func (s *CoachService) calcMasteryScore(sessionID string, totalLevels int) int {
-	// 简化版：满分5，每用一次提示扣0.5
-	// 实际应从 session 的 hints_used 和 levels_failed 计算
-	// MVP 先返回 4
-	return 4
+// 基于总层级、使用提示次数（每次/2）、失败层级数（每次-1）真实计算
+func (s *CoachService) calcMasteryScore(totalLevels, hintsUsed, failedLevels int) int {
+	score := 5
+	score -= failedLevels
+	score -= hintsUsed / 2
+	if score < 1 {
+		score = 1
+	}
+	if score > 5 {
+		score = 5
+	}
+	return score
 }
 
 // generateNote 训练完成自动生成笔记
@@ -344,11 +366,10 @@ func (s *CoachService) generateNote(ctx context.Context, sessionID, userID strin
 	return note, nil
 }
 
-// markCheckpoints 自动打勾考点进度
-func (s *CoachService) markCheckpoints(ctx context.Context, userID string, scenario *models.Scenario, sessionID string) {
-	score := 4
+// markCheckpoints 自动打勾考点进度（掌握度与本次训练一致）
+func (s *CoachService) markCheckpoints(ctx context.Context, userID string, scenario *models.Scenario, sessionID string, mastery int) {
 	for _, cpID := range scenario.CheckpointIDs {
-		s.progressRepo.MarkComplete(ctx, userID, cpID, scenario.DomainID, scenario.ID, sessionID, score)
+		s.progressRepo.MarkComplete(ctx, userID, cpID, scenario.DomainID, scenario.ID, sessionID, mastery)
 	}
 }
 

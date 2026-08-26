@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	_ "github.com/lib/pq"
 
@@ -20,9 +21,11 @@ func New(cfg config.DBConfig) (*sql.DB, error) {
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
 
-	// 连接池配置
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
+	// 连接池配置（参数来自 DBConfig，避免硬编码）
+	db.SetMaxOpenConns(cfg.MaxOpenConns)
+	db.SetMaxIdleConns(cfg.MaxIdleConns)
+	db.SetConnMaxLifetime(time.Duration(cfg.ConnMaxLifetimeMin) * time.Minute)
+	db.SetConnMaxIdleTime(time.Duration(cfg.ConnMaxLifetimeMin) * time.Minute)
 
 	return db, nil
 }

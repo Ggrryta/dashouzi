@@ -13,12 +13,15 @@ type Config struct {
 }
 
 type DBConfig struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	Name     string
-	SSLMode  string
+	Host              string
+	Port              int
+	User              string
+	Password          string
+	Name              string
+	SSLMode           string
+	MaxOpenConns      int // 连接池最大打开连接数
+	MaxIdleConns      int // 连接池最大空闲连接数
+	ConnMaxLifetimeMin int // 连接最大存活时间（分钟），防止容器长跑僵死连接
 }
 
 type LLMConfig struct {
@@ -43,8 +46,11 @@ func Load() *Config {
 			Port:     getEnvInt("DB_PORT", 5432),
 			User:     getEnv("DB_USER", "coach"),
 			Password: getEnv("DB_PASSWORD", "coach123"),
-			Name:     getEnv("DB_NAME", "mysql_coach"),
-			SSLMode:  getEnv("DB_SSLMODE", "disable"),
+			Name:              getEnv("DB_NAME", "mysql_coach"),
+			SSLMode:           getEnv("DB_SSLMODE", "disable"),
+			MaxOpenConns:      getEnvInt("DB_MAX_OPEN_CONNS", 25),
+			MaxIdleConns:      getEnvInt("DB_MAX_IDLE_CONNS", 5),
+			ConnMaxLifetimeMin: getEnvInt("DB_CONN_MAX_LIFETIME_MIN", 30),
 		},
 		LLM: LLMConfig{
 			Provider:       getEnv("LLM_PROVIDER", "openai"),

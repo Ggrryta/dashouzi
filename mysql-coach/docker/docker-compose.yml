@@ -19,6 +19,8 @@ services:
       timeout: 5s
       retries: 5
 
+  # 开发模式：挂载 ../backend 源码 + `command: go run` 热重载（见下方 command）。
+  # 生产部署请改用 Dockerfile.backend 构建的二进制（去掉 volumes 源码挂载与 go run command）。
   backend:
     build:
       context: ../backend

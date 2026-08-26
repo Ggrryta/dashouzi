@@ -177,6 +177,22 @@ func (r *SessionRepo) Create(ctx context.Context, s *models.TrainingSession) err
 	`, s.UserID, s.ScenarioID, s.DomainID).Scan(&s.ID, &s.StartedAt)
 }
 
+// GetByID 加载训练会话（读取权威的 current_level / status，避免信任前端传参）
+func (r *SessionRepo) GetByID(ctx context.Context, id string) (*models.TrainingSession, error) {
+	var s models.TrainingSession
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, user_id, scenario_id, domain_id, status, current_level, hints_used
+		FROM training_sessions WHERE id = $1
+	`, id).Scan(
+		&s.ID, &s.UserID, &s.ScenarioID, &s.DomainID, &s.Status,
+		&s.CurrentLevel, &s.HintsUsed,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get session %s: %w", id, err)
+	}
+	return &s, nil
+}
+
 func (r *SessionRepo) AppendMessage(ctx context.Context, sessionID string, role, content string, level int) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE training_sessions
